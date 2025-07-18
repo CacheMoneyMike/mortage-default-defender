@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Default Defender V2</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        :root {
+            --background: #1a1a1a;
+            --text-color: #f0f0f0;
+            --paddle-color: #33aaff;
+            --ball-color: #ffffff;
+            --border-color: #444;
+            --success-color: #2ecc71;
+            --fail-color: #c0392b;
+        }
+
+        body {
+            background-color: var(--background);
+            color: var(--text-color);
+            font-family: 'Press Start 2P', cursive;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            text-align: center;
+        }
+
+        #game-container {
+            border: 4px solid var(--border-color);
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            position: relative;
+            background-color: #000;
+        }
+        
+        #flash-message {
+            position: absolute;
+            top: 55%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2.5rem;
+            color: var(--fail-color);
+            text-shadow: 3px 3px #000;
+            opacity: 0;
+            transition: opacity 0.2s ease-in-out;
+            pointer-events: none;
+        }
+
+        #popup {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.85);
+            border: 4px solid var(--border-color);
+            padding: 40px;
+            width: 50%;
+            z-index: 100;
+        }
+
+        #popup h2 { font-size: 2rem; color: #ffcc00; margin: 0 0 20px 0; }
+
+        #popup button {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 1rem;
+            padding: 15px 25px;
+            background-color: var(--paddle-color);
+            color: #000;
+            border: none;
+            cursor: pointer;
+        }
+
+        #ui-container {
+            display: flex;
+            justify-content: space-between;
+            width: 800px;
+            margin-top: 15px;
+        }
+
+        .info-box {
+            background-color: #000;
+            border: 2px solid var(--border-color);
+            padding: 10px 20px;
+            font-size: 1rem;
+        }
+
+        .info-box span { color: #ffcc00; }
+        
+        #mitigation-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            width: 800px;
+            margin-top: 20px;
+            font-size: 0.7rem;
+        }
+        
+        .stat {
+            background-color: #2c2c2c;
+            padding: 8px;
+            border-radius: 4px;
+            border-left: 5px solid;
+        }
+        
+        .stat-value { float: right; font-size: 0.9rem; color: var(--success-color); }
+
+    </style>
+</head>
+<body>
+
+    <h1>Default Defender</h1>
+    <div id="game-container">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div id="flash-message"></div>
+        <div id="popup">
+            <h2 id="popup-message"></h2>
+            <button id="restart-button">Play Again</button>
+        </div>
+    </div>
+    <div id="ui-container">
+        <div class="info-box">SCORE: <span id="score">0</span></div>
+        <div class="info-box">DEFAULTS: <span id="defaults">0</span></div>
+    </div>
+    <div id="mitigation-stats">
+        </div>
+    
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('score');
+        const defaultsDisplay = document.getElementById('defaults');
+        const mitigationStatsContainer = document.getElementById('mitigation-stats');
+        
+        const flashMessageEl = document.getElementById('flash-message');
+        const popup = document.getElementById('popup');
+        const popupMessage = document.getElementById('popup-message');
+        const restartButton = document.getElementById('restart-button');
+
+        let paddle = { height: 15, width: 150, x: canvas.width / 2 - 75, y: canvas.height - 30 };
+        let ball = { x: canvas.width / 2, y: canvas.height / 2, radius: 10, speed: 4, dx: 4, dy: -4 };
+
+        const lossMitigationOutcomes = [
+            { name: "Forbearance", color: "#c0392b", count: 0 },
+            { name: "Repayment Plan", color: "#e67e22", count: 0 },
+            { name: "Payment Deferral", color: "#f1c40f", count: 0 },
+            { name: "Modification", color: "#2ecc71", count: 0 },
+            { name: "Partial Claim", color: "#3498db", count: 0 },
+            { name: "Reinstatement", color: "#8e44ad", count: 0 }
+        ];
+
+        let bricks = [];
+        const brickInfo = {
+            rowCount: lossMitigationOutcomes.length,
+            columnCount: 10,
+            width: 75, height: 20,
+            padding: 3, offsetTop: 50, offsetLeft: 25
+        };
+
+        let score = 0;
+        let defaults = 0;
+        const maxDefaults = 3;
+        let rightPressed = false;
+        let leftPressed = false;
+        let animationFrameId;
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Right' || e.key === 'ArrowRight') rightPressed = true;
+            else if (e.key === 'Left' || e.key === 'ArrowLeft') leftPressed = true;
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'Right' || e.key === 'ArrowRight') rightPressed = false;
+            else if (e.key === 'Left' || e.key === 'ArrowLeft') leftPressed = false;
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            const canvasBounds = canvas.getBoundingClientRect();
+            const relativeX = e.clientX - canvasBounds.left;
+            if (relativeX > 0 && relativeX < canvas.width) {
+                paddle.x = relativeX - paddle.width / 2;
+                if (paddle.x < 0) paddle.x = 0;
+                if (paddle.x + paddle.width > canvas.width) paddle.x = canvas.width - paddle.width;
+            }
+        });
+        
+        restartButton.addEventListener('click', () => { document.location.reload(); });
+
+        function createBricks() {
+            bricks = [];
+            for (let c = 0; c < brickInfo.columnCount; c++) {
+                bricks[c] = [];
+                for (let r = 0; r < brickInfo.rowCount; r++) {
+                    bricks[c][r] = {
+                        x: (c * (brickInfo.width + brickInfo.padding)) + brickInfo.offsetLeft,
+                        y: (r * (brickInfo.height + brickInfo.padding)) + brickInfo.offsetTop,
+                        status: 2,
+                        mitigationIndex: r
+                    };
+                }
+            }
+        }
+        
+        function setupMitigationUI() {
+            mitigationStatsContainer.innerHTML = '';
+            lossMitigationOutcomes.forEach((outcome, index) => {
+                const statDiv = document.createElement('div');
+                statDiv.className = 'stat';
+                statDiv.style.borderColor = outcome.color;
+                statDiv.innerHTML = `${outcome.name} <span class="stat-value" id="stat-${index}">0</span>`;
+                mitigationStatsContainer.appendChild(statDiv);
+            });
+        }
+        
+        function flashMessage(message) {
+            flashMessageEl.textContent = message;
+            flashMessageEl.style.opacity = 1;
+            setTimeout(() => { flashMessageEl.style.opacity = 0; }, 800);
+        }
+        
+        function handleDefault() {
+            defaults++;
+            flashMessage('MORTGAGE DEFAULT!');
+            if (defaults >= maxDefaults) {
+                showPopup('GAME OVER');
+            } else {
+                ball.x = canvas.width / 2;
+                ball.y = canvas.height / 2;
+                ball.dx = ball.speed * (Math.random() < 0.5 ? 1 : -1);
+                ball.dy = -ball.speed;
+                paddle.x = (canvas.width - paddle.width) / 2;
+            }
+        }
+
+        function collisionDetection() {
+            for (let c = 0; c < brickInfo.columnCount; c++) {
+                for (let r = 0; r < brickInfo.rowCount; r++) {
+                    const b = bricks[c][r];
+                    if (b.status > 0 && ball.x > b.x && ball.x < b.x + brickInfo.width && ball.y > b.y && ball.y < b.y + brickInfo.height) {
+                        ball.dy = -ball.dy;
+                        b.status--;
+                        if (b.status === 0) {
+                            score += 100;
+                            lossMitigationOutcomes[b.mitigationIndex].count++;
+                        }
+                    }
+                }
+            }
+
+            if (ball.x + ball.dx > canvas.width - ball.radius || ball.x + ball.dx < ball.radius) {
+                ball.dx = -ball.dx;
+            }
+
+            if (ball.y + ball.dy < ball.radius) {
+                ball.dy = -ball.dy;
+            } 
+            else if (ball.y + ball.dy > canvas.height - ball.radius) {
+                if (ball.x > paddle.x && ball.x < paddle.x + paddle.width) {
+                    ball.dy = -ball.dy;
+                } else {
+                    handleDefault();
+                }
+            }
+        }
+        
+        function updateUI() {
+            scoreDisplay.textContent = score;
+            defaultsDisplay.textContent = defaults;
+            lossMitigationOutcomes.forEach((outcome, index) => {
+                const statEl = document.getElementById(`stat-${index}`);
+                if (statEl) {
+                    statEl.textContent = outcome.count;
+                }
+            });
+        }
+        
+        function checkWinCondition() {
+            let brokenBricks = bricks.flat().filter(b => b.status === 0).length;
+            if(brokenBricks === brickInfo.rowCount * brickInfo.columnCount) {
+                showPopup('YOU WIN!');
+            }
+        }
+
+        function showPopup(message) {
+            cancelAnimationFrame(animationFrameId);
+            popupMessage.textContent = message;
+            popup.style.display = 'block';
+        }
+
+        function drawPaddle() {
+            ctx.fillStyle = '#33aaff';
+            ctx.fillRect(paddle.x, paddle.y, paddle.width, paddle.height);
+        }
+
+        function drawBall() {
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function drawBricks() {
+            for (let c = 0; c < brickInfo.columnCount; c++) {
+                for (let r = 0; r < brickInfo.rowCount; r++) {
+                    const b = bricks[c][r];
+                    if (b.status > 0) {
+                        ctx.fillStyle = lossMitigationOutcomes[b.mitigationIndex].color;
+                        ctx.globalAlpha = b.status === 2 ? 1.0 : 0.5;
+                        ctx.fillRect(b.x, b.y, brickInfo.width, brickInfo.height);
+                    }
+                }
+            }
+            ctx.globalAlpha = 1.0;
+        }
+        
+        function movePaddle() {
+            if (rightPressed && paddle.x < canvas.width - paddle.width) paddle.x += 7;
+            else if (leftPressed && paddle.x > 0) paddle.x -= 7;
+        }
+
+        function gameLoop() {
+            if(defaults >= maxDefaults) return; 
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // --- NEW: Reset canvas state to prevent bugs ---
+            ctx.textAlign = 'left';
+            
+            drawBricks();
+            drawBall();
+            drawPaddle();
+            movePaddle();
+            
+            ball.x += ball.dx;
+            ball.y += ball.dy;
+
+            collisionDetection();
+            updateUI();
+            checkWinCondition();
+            
+            // --- NEW: Draw the signature ---
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+            ctx.font = '10px "Press Start 2P"';
+            ctx.textAlign = 'right';
+            ctx.fillText('made with Gemini by CacheMoneyMike', canvas.width - 10, canvas.height - 10);
+            
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        setupMitigationUI();
+        createBricks();
+        gameLoop();
+    });
+    </script>
+</body>
+</html>
